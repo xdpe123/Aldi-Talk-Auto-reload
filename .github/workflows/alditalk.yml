@@ -31,7 +31,6 @@ jobs:
       - name: TypeScript bauen
         run: npm run build
 
-      # Letzte gespeicherte Browser-Session suchen
       - name: Alte Browser-Session herunterladen
         env:
           GH_TOKEN: ${{ github.token }}
@@ -39,18 +38,18 @@ jobs:
           mkdir -p session-download
 
           ARTIFACT_ID=$(gh api \
-            repos/${{ github.repository }}/actions/artifacts \
+            "repos/${{ github.repository }}/actions/artifacts" \
             --jq '.artifacts
-              | map(select(.name == "alditalk-session" and .expired == false))
-              | sort_by(.created_at)
-              | reverse
-              | .[0].id // empty')
+            | map(select(.name == "alditalk-session" and .expired == false))
+            | sort_by(.created_at)
+            | reverse
+            | .[0].id // empty')
 
           if [ -n "$ARTIFACT_ID" ]; then
             echo "Gespeicherte Session gefunden."
 
             gh api \
-              repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip \
+              "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
               > session.zip
 
             unzip -o session.zip -d session-download
@@ -58,13 +57,11 @@ jobs:
             echo "Noch keine gespeicherte Session vorhanden."
           fi
 
-      # Session entschlüsseln und browser-profile wiederherstellen
       - name: Browser-Session wiederherstellen
         env:
           SESSION_KEY: ${{ secrets.SESSION_KEY }}
         run: |
           if [ -f session-download/browser-profile.tar.gz.enc ]; then
-
             echo "Entschlüssele Browser-Session..."
 
             openssl enc \
@@ -82,22 +79,19 @@ jobs:
             echo "Keine bestehende Session zum Wiederherstellen."
           fi
 
-      # ALDI TALK ausführen
-           - name: ALDI TALK prüfen
+      - name: ALDI TALK prüfen
         env:
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
           SMS_CODE: ${{ secrets.SMS_CODE }}
         run: node dist/index.js
-        
-      # Browser-Profil nach jedem Lauf verschlüsseln
+
       - name: Browser-Session verschlüsseln
         if: always()
         env:
           SESSION_KEY: ${{ secrets.SESSION_KEY }}
         run: |
           if [ -d browser-profile ]; then
-
             echo "Speichere Browser-Profil..."
 
             tar -czf browser-profile.tar.gz browser-profile
@@ -115,7 +109,6 @@ jobs:
             echo "Kein Browser-Profil vorhanden."
           fi
 
-      # Verschlüsselte Session für den nächsten Lauf speichern
       - name: Browser-Session speichern
         if: always()
         uses: actions/upload-artifact@v4
