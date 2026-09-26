@@ -31,6 +31,7 @@ const wait = (seconds: number): Promise<void> =>
 const createBrowser = async (): Promise<Browser> => {
   return await puppeteer.launch({
     headless: true,
+    userDataDir: './browser-profile',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
