@@ -25,7 +25,27 @@ jobs:
 
       - name: TypeScript bauen
         run: npm run build
+      - name: Alte Session herunterladen
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p session-download
+          gh run download --name alditalk-session --dir session-download || true
 
+      - name: Session entschlüsseln
+        continue-on-error: true
+        env:
+          SESSION_KEY: ${{ secrets.SESSION_KEY }}
+        run: |
+          if [ -f session-download/browser-profile.tar.gz.enc ]; then
+            openssl enc -d -aes-256-cbc -pbkdf2 \
+              -in session-download/browser-profile.tar.gz.enc \
+              -out browser-profile.tar.gz \
+              -pass env:SESSION_KEY
+
+            tar -xzf browser-profile.tar.gz
+          fi
       - name: ALDI TALK prüfen
         env:
           USERNAME: ${{ secrets.USERNAME }}
