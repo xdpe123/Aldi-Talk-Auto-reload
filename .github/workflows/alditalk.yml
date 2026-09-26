@@ -83,12 +83,13 @@ jobs:
           fi
 
       # ALDI TALK ausführen
-      - name: ALDI TALK prüfen
+           - name: ALDI TALK prüfen
         env:
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
+          SMS_CODE: ${{ secrets.SMS_CODE }}
         run: node dist/index.js
-
+        
       # Browser-Profil nach jedem Lauf verschlüsseln
       - name: Browser-Session verschlüsseln
         if: always()
