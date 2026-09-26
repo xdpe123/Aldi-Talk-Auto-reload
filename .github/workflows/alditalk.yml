@@ -1,0 +1,33 @@
+name: ALDI TALK Auto Reload
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+
+  workflow_dispatch:
+
+jobs:
+  reload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Repository laden
+        uses: actions/checkout@v4
+
+      - name: Node.js installieren
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Dependencies installieren
+        run: npm ci
+
+      - name: TypeScript bauen
+        run: npm run build
+
+      - name: ALDI TALK prüfen
+        env:
+          USERNAME: ${{ secrets.USERNAME }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+        run: node dist/index.js
