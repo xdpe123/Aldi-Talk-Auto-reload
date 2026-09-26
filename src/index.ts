@@ -33,8 +33,6 @@ const wait = (seconds: number): Promise<void> =>
 const createBrowser = async (): Promise<Browser> => {
   return await puppeteer.launch({
     headless: true,
-
-    // Browserprofil wird zwischen den GitHub-Läufen gespeichert
     userDataDir: './browser-profile',
 
     args: [
@@ -94,10 +92,10 @@ const isLoginFormVisible = async (
   page: Page
 ): Promise<boolean> => {
   try {
-    const usernameField =
+    const field =
       await page.$(SELECTORS.USERNAME_FIELD);
 
-    return usernameField !== null;
+    return field !== null;
   } catch {
     return false;
   }
@@ -108,7 +106,9 @@ const isLoginFormVisible = async (
 // Login
 // ======================================================
 
-const performLogin = async (page: Page): Promise<void> => {
+const performLogin = async (
+  page: Page
+): Promise<void> => {
   const { USERNAME, PASSWORD } = process.env;
 
   if (!USERNAME || !PASSWORD) {
@@ -161,12 +161,12 @@ const performLogin = async (page: Page): Promise<void> => {
 
   console.log('Login submitted');
 
-  await wait(5);
+  await wait(8);
 };
 
 
 // ======================================================
-// SMS-Seite erkennen
+// SMS-Abfrage erkennen
 // ======================================================
 
 const isSmsVerificationVisible = async (
@@ -192,59 +192,92 @@ const isSmsVerificationVisible = async (
       return result;
     };
 
-
     const elements =
       collectElements(document);
 
 
-    // Alle Texte inklusive Shadow DOM sammeln
+    // Gesamter sichtbarer Text inkl. Shadow DOM
     const allText = elements
       .map(element => element.textContent || '')
       .join(' ')
       .toLowerCase();
 
 
-    const textIndicatesSms =
+    const verificationText =
       allText.includes('bestätigungscode') ||
       allText.includes('sms-code') ||
       allText.includes('sms code') ||
+      allText.includes('einmalcode') ||
+      allText.includes('einmal-code') ||
       (
         allText.includes('sms') &&
-        (
-          allText.includes('code') ||
-          allText.includes('bestätig')
-        )
+        allText.includes('bestätig')
       );
 
 
-    // Zusätzlich nach typischen Code-Eingabefeldern suchen
+    // Eingabefelder suchen
     const inputs = elements.filter(
       element =>
         element instanceof HTMLInputElement
     ) as HTMLInputElement[];
 
 
-    const codeInputExists = inputs.some(input => {
-      const description = [
-        input.name,
-        input.id,
-        input.placeholder,
-        input.autocomplete
-      ]
-        .join(' ')
-        .toLowerCase();
-
+    const visibleInputs = inputs.filter(input => {
+      const rect =
+        input.getBoundingClientRect();
 
       return (
-        input.autocomplete === 'one-time-code' ||
-        description.includes('code') ||
-        description.includes('bestätigung') ||
-        [4, 5, 6, 8].includes(input.maxLength)
+        rect.width > 0 &&
+        rect.height > 0 &&
+        !input.disabled
       );
     });
 
 
-    return textIndicatesSms || codeInputExists;
+    // Mehrere einzelne Felder für Ziffern
+    const singleDigitInputs =
+      visibleInputs.filter(
+        input => input.maxLength === 1
+      );
+
+
+    const multipleOtpFields =
+      singleDigitInputs.length >= 4;
+
+
+    // Ein einzelnes OTP-/Code-Feld
+    const singleCodeInput =
+      visibleInputs.some(input => {
+
+        const description = [
+          input.name,
+          input.id,
+          input.placeholder,
+          input.autocomplete,
+          input.getAttribute('aria-label') || ''
+        ]
+          .join(' ')
+          .toLowerCase();
+
+
+        return (
+          input.autocomplete === 'one-time-code' ||
+          description.includes('code') ||
+          description.includes('otp') ||
+          description.includes('bestätigung')
+        );
+      });
+
+
+    // Text alleine reicht NICHT mehr.
+    // Es muss auch ein plausibles Code-Feld geben.
+    return (
+      verificationText &&
+      (
+        multipleOtpFields ||
+        singleCodeInput
+      )
+    );
   });
 };
 
@@ -273,7 +306,7 @@ const performSmsVerification = async (
   );
 
 
-  const codeInserted = await page.evaluate(
+  const inserted = await page.evaluate(
     (code: string) => {
 
       const collectElements = (
@@ -318,7 +351,7 @@ const performSmsVerification = async (
         });
 
 
-      const setInputValue = (
+      const setValue = (
         input: HTMLInputElement,
         value: string
       ) => {
@@ -329,20 +362,17 @@ const performSmsVerification = async (
             'value'
           )?.set;
 
-
         if (setter) {
           setter.call(input, value);
         } else {
           input.value = value;
         }
 
-
         input.dispatchEvent(
           new Event('input', {
             bubbles: true
           })
         );
-
 
         input.dispatchEvent(
           new Event('change', {
@@ -352,8 +382,7 @@ const performSmsVerification = async (
       };
 
 
-      // Variante 1:
-      // einzelnes Eingabefeld pro Ziffer
+      // Mehrere Felder, eins pro Ziffer
 
       const digitInputs =
         visibleInputs.filter(
@@ -368,7 +397,7 @@ const performSmsVerification = async (
         code
           .split('')
           .forEach((digit, index) => {
-            setInputValue(
+            setValue(
               digitInputs[index],
               digit
             );
@@ -378,8 +407,7 @@ const performSmsVerification = async (
       }
 
 
-      // Variante 2:
-      // ein einziges Code-Feld
+      // Ein einzelnes Codefeld
 
       const codeInput =
         visibleInputs.find(input => {
@@ -388,28 +416,22 @@ const performSmsVerification = async (
             input.name,
             input.id,
             input.placeholder,
-            input.autocomplete
+            input.autocomplete,
+            input.getAttribute('aria-label') || ''
           ]
             .join(' ')
             .toLowerCase();
 
 
           return (
-            input.autocomplete ===
-              'one-time-code' ||
+            input.autocomplete === 'one-time-code' ||
             description.includes('code') ||
+            description.includes('otp') ||
             description.includes(
               'bestätigung'
             )
           );
-        }) ??
-        visibleInputs.find(input =>
-          [
-            'text',
-            'tel',
-            'number'
-          ].includes(input.type)
-        );
+        });
 
 
       if (!codeInput) {
@@ -417,7 +439,7 @@ const performSmsVerification = async (
       }
 
 
-      setInputValue(
+      setValue(
         codeInput,
         code
       );
@@ -430,7 +452,7 @@ const performSmsVerification = async (
   );
 
 
-  if (!codeInserted) {
+  if (!inserted) {
     throw new Error(
       'SMS-Code-Feld wurde nicht gefunden'
     );
@@ -445,7 +467,9 @@ const performSmsVerification = async (
   await wait(2);
 
 
-  // Bestätigungsbutton suchen
+  // ==================================================
+  // Bestätigungsbutton
+  // ==================================================
 
   const submitted = await page.evaluate(() => {
 
@@ -476,6 +500,7 @@ const performSmsVerification = async (
 
       const tag =
         element.tagName.toLowerCase();
+
 
       if (
         tag !== 'button' &&
@@ -534,7 +559,7 @@ const performSmsVerification = async (
     await isSmsVerificationVisible(page)
   ) {
     throw new Error(
-      'SMS-Bestätigung ist weiterhin sichtbar. Der Code ist möglicherweise ungültig oder abgelaufen.'
+      'SMS-Bestätigung ist weiterhin sichtbar. Code möglicherweise falsch oder abgelaufen.'
     );
   }
 
@@ -589,7 +614,7 @@ const findDataVolumeButton = async (
 
 
 // ======================================================
-// 1 GB anklicken
+// 1 GB klicken
 // ======================================================
 
 const extendDataVolume = async (
@@ -670,82 +695,14 @@ const executeAutomation =
 
 
       // ==================================================
-      // 1.
-      // Gibt es bereits eine SMS-Abfrage aus
-      // dem vorherigen GitHub-Lauf?
-      // ==================================================
-
-      if (
-        await isSmsVerificationVisible(
-          page
-        )
-      ) {
-
-        console.log(
-          'Bestehende SMS-Abfrage erkannt.'
-        );
-
-
-        // Noch kein Code eingetragen:
-        // Workflow beenden und Profil speichern.
-
-        if (
-          !process.env.SMS_CODE
-        ) {
-
-          console.log(
-            'Kein SMS_CODE vorhanden.'
-          );
-
-
-          console.log(
-            'Browser-Session wird gespeichert.'
-          );
-
-
-          console.log(
-            'Jetzt den gerade erhaltenen SMS-Code als Secret SMS_CODE speichern und den Workflow erneut starten.'
-          );
-
-
-          return;
-        }
-
-
-        // Vorhandenen Code in die bereits
-        // bestehende SMS-Abfrage eintragen.
-
-        await performSmsVerification(
-          page
-        );
-
-
-        // Danach Übersicht neu laden.
-
-        await page.goto(
-          URLS.ALDITALK_PORTAL,
-          {
-            waitUntil: 'networkidle2',
-            timeout: 30000
-          }
-        );
-
-
-        await waitForPageLoad(
-          page
-        );
-
-
-        await acceptCookies(
-          page
-        );
-      }
-
-
-      // ==================================================
-      // 2.
-      // Nur neu einloggen, wenn wirklich
-      // das Loginformular sichtbar ist.
+      // WICHTIGE ÄNDERUNG:
+      //
+      // ZUERST schauen, ob das normale Loginformular
+      // sichtbar ist.
+      //
+      // Damit verhindern wir, dass irgendwelcher
+      // allgemeiner SMS-Text auf der Loginseite
+      // fälschlich als SMS-Challenge erkannt wird.
       // ==================================================
 
       if (
@@ -774,15 +731,9 @@ const executeAutomation =
         );
 
 
-        // WICHTIG:
-        // ALDI braucht offenbar etwas Zeit,
-        // bis die SMS-Abfrage erscheint.
-
+        // SMS-Seite kann verzögert erscheinen
         await wait(10);
 
-
-        // Jetzt nochmal zuverlässig prüfen,
-        // inklusive Shadow DOM.
 
         if (
           await isSmsVerificationVisible(
@@ -806,18 +757,93 @@ const executeAutomation =
 
 
           console.log(
-            'Diesen neuen Code anschließend als Secret SMS_CODE speichern und den Workflow erneut starten.'
+            'Diesen Code als Secret SMS_CODE speichern und Workflow erneut starten.'
           );
 
 
+          // NICHT weiterarbeiten.
+          // browser.close() speichert unten das Profil.
           return;
+        }
+
+
+        console.log(
+          'Nach dem Login wurde keine SMS-Abfrage erkannt.'
+        );
+
+      } else {
+
+        // ==================================================
+        // Kein Loginformular:
+        //
+        // Jetzt kann es entweder
+        // - eine offene SMS-Challenge
+        // - oder eine gültige Session sein.
+        // ==================================================
+
+        if (
+          await isSmsVerificationVisible(
+            page
+          )
+        ) {
+
+          console.log(
+            'Bestehende SMS-Abfrage erkannt.'
+          );
+
+
+          if (
+            !process.env.SMS_CODE
+          ) {
+
+            console.log(
+              'Kein SMS_CODE vorhanden.'
+            );
+
+
+            console.log(
+              'Browser-Session wird gespeichert.'
+            );
+
+
+            console.log(
+              'Den Code aus der bereits erhaltenen SMS als Secret SMS_CODE speichern und Workflow erneut starten.'
+            );
+
+
+            return;
+          }
+
+
+          await performSmsVerification(
+            page
+          );
+
+
+          await page.goto(
+            URLS.ALDITALK_PORTAL,
+            {
+              waitUntil:
+                'networkidle2',
+              timeout: 30000
+            }
+          );
+
+
+          await waitForPageLoad(
+            page
+          );
+
+
+          await acceptCookies(
+            page
+          );
         }
       }
 
 
       // ==================================================
-      // 3.
-      // Sicherheitsprüfung
+      // Sicherheitschecks
       // ==================================================
 
       if (
@@ -827,7 +853,7 @@ const executeAutomation =
       ) {
 
         console.log(
-          'SMS-Bestätigung ist noch nicht abgeschlossen.'
+          'SMS-Bestätigung noch nicht abgeschlossen.'
         );
 
         return;
@@ -847,9 +873,7 @@ const executeAutomation =
 
 
       // ==================================================
-      // 4.
-      // Erst jetzt gehen wir davon aus,
-      // dass die Session gültig ist.
+      // Gültige Session
       // ==================================================
 
       console.log(
@@ -873,10 +897,6 @@ const executeAutomation =
       );
 
     } finally {
-
-      // Wichtig:
-      // Chromium sauber schließen,
-      // damit das Browserprofil gespeichert wird.
 
       await browser.close();
     }
