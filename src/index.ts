@@ -160,12 +160,30 @@ const executeAutomation = async (): Promise<void> => {
     await page.setViewport({ width: 1080, height: 1024 });
     await page.goto(URLS.ALDITALK_PORTAL);
 
-    await waitForPageLoad(page);
-    await acceptCookies(page);
+   await waitForPageLoad(page);
+await acceptCookies(page);
+
+// Prüfen, ob die gespeicherte Session noch eingeloggt ist
+const dataButton = await findDataVolumeButton(page);
+
+if (dataButton) {
+  console.log('Existing ALDI TALK session detected - login skipped');
+} else {
+  const loginField = await page.$(SELECTORS.USERNAME_FIELD);
+
+  if (loginField) {
+    console.log('No valid session detected - logging in...');
     await performLogin(page);
     await waitForPageLoad(page);
-    await acceptCookies(page); // Sometimes needed after login
-    await extendDataVolume(page);
+    await acceptCookies(page);
+  } else {
+    throw new Error(
+      'Neither logged-in overview nor login form detected. SMS verification may be required.'
+    );
+  }
+}
+
+await extendDataVolume(page);
 
     console.log('Automation completed successfully');
   } finally {
