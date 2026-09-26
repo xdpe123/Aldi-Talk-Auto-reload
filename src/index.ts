@@ -182,7 +182,21 @@ if (dataButton) {
     );
   }
 }
+console.log('Current URL:', page.url());
 
+const bodyText = await page.evaluate(() => document.body.innerText);
+
+console.log(
+  'SMS verification visible:',
+  bodyText.includes('Bestätigungscode') ||
+  bodyText.includes('Bestätigung') ||
+  bodyText.includes('SMS')
+);
+
+console.log(
+  'Login form visible:',
+  (await page.$(SELECTORS.USERNAME_FIELD)) !== null
+);
 await extendDataVolume(page);
 
     console.log('Automation completed successfully');
