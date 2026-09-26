@@ -51,3 +51,25 @@ jobs:
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
         run: node dist/index.js
+              - name: Browser-Session verschlüsseln
+        if: always()
+        env:
+          SESSION_KEY: ${{ secrets.SESSION_KEY }}
+        run: |
+          if [ -d browser-profile ]; then
+            tar -czf browser-profile.tar.gz browser-profile
+
+            openssl enc -aes-256-cbc -salt -pbkdf2 \
+              -in browser-profile.tar.gz \
+              -out browser-profile.tar.gz.enc \
+              -pass env:SESSION_KEY
+          fi
+
+      - name: Browser-Session speichern
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alditalk-session
+          path: browser-profile.tar.gz.enc
+          retention-days: 7
+          overwrite: true
